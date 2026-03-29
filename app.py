@@ -1,49 +1,43 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-import seaborn as sns
-import matplotlib.pyplot as plt
 import os
-
-sns.set(style="whitegrid")
+import plotly.express as px
 
 st.set_page_config(layout="wide")
 
 # 🎯 TITLE
-st.title("🎯 Valorant Player Analytics Dashboard")
-st.info("Duelists = entry fraggers | Initiators = intel | Sentinels = defense | Controllers = map control")
+st.title("🎯 Valorant Analytics Dashboard")
+st.caption("Interactive player & agent analytics")
 
 # 🔗 DATA
 @st.cache_data
 def load_data():
-    db_path = "game_data.db"
-
-    if not os.path.exists(db_path):
+    if not os.path.exists("game_data.db"):
         df = pd.read_csv("game_data.csv")
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect("game_data.db")
         df.to_sql("game_sessions", conn, if_exists="replace", index=False)
         conn.close()
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect("game_data.db")
     df = pd.read_sql("SELECT * FROM game_sessions", conn)
     conn.close()
-
     return df
 
 df = load_data()
 
 # 🎮 SIDEBAR
 with st.sidebar:
-    st.title("🎮 Controls")
+    st.title("🎮 Filters")
 
     selected_agent = st.multiselect(
         "Agent",
-        options=df["agent"].unique(),
+        df["agent"].unique(),
         default=df["agent"].unique()
     )
 
     level_range = st.slider(
-        "Level Range",
+        "Level",
         int(df["level"].min()),
         int(df["level"].max()),
         (1, 50)
@@ -53,31 +47,15 @@ with st.sidebar:
 filtered_df = df[
     (df["agent"].isin(selected_agent)) &
     (df["level"].between(level_range[0], level_range[1]))
-]
+].copy()
 
 if filtered_df.empty:
-    st.warning("No data available.")
+    st.warning("No data")
     st.stop()
 
-filtered_df = filtered_df.copy()
-
-# 🔥 KDA
+# 🔥 FEATURES
 filtered_df["kda"] = filtered_df["kills"] / (filtered_df["deaths"] + 1)
 
-# 🔥 RANK
-def get_rank(kda):
-    if kda > 2:
-        return "Radiant"
-    elif kda > 1.5:
-        return "Immortal"
-    elif kda > 1:
-        return "Diamond"
-    else:
-        return "Gold"
-
-filtered_df["rank"] = filtered_df["kda"].apply(get_rank)
-
-# 🔥 AGENT ROLES
 agent_roles = {
     "Jett": "Duelist",
     "Reyna": "Duelist",
@@ -86,105 +64,94 @@ agent_roles = {
     "Sage": "Sentinel"
 }
 
+agent_colors = {
+    "Jett": "#00FFFF",
+    "Reyna": "#8000FF",
+    "Phoenix": "#FF5733",
+    "Sova": "#00FF99",
+    "Sage": "#A8E6CF"
+}
+
 filtered_df["role"] = filtered_df["agent"].map(agent_roles)
 
-# ---------------------------
 # 📊 OVERVIEW
-# ---------------------------
+st.markdown("## 📊 Overview")
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Players", filtered_df["user_id"].nunique())
+c2.metric("Avg Kills", int(filtered_df["kills"].mean()))
+c3.metric("Avg KDA", round(filtered_df["kda"].mean(), 2))
+
 st.markdown("---")
-st.header("📊 Overview")
 
-total_players = filtered_df["user_id"].nunique()
-avg_kills = int(filtered_df["kills"].mean())
-avg_kda = round(filtered_df["kda"].mean(), 2)
+# 🎯 AGENT PERFORMANCE + ROLE
+col1, col2 = st.columns(2)
 
-col1, col2, col3 = st.columns(3)
-col1.metric("👥 Players", total_players)
-col2.metric("🔫 Avg Kills", avg_kills)
-col3.metric("⚔️ Avg KDA", avg_kda)
+# Agent Performance
+agent_perf = filtered_df.groupby("agent")["kills"].mean().reset_index()
 
-# ---------------------------
-# 🏆 RANK DISTRIBUTION
-# ---------------------------
+fig1 = px.bar(
+    agent_perf,
+    x="agent",
+    y="kills",
+    color="agent",
+    color_discrete_map=agent_colors,
+    title="Kills per Agent"
+)
+
+fig1.update_layout(height=350)
+fig1.update_traces(hovertemplate="Agent: %{x}<br>Kills: %{y}")
+
+col1.plotly_chart(fig1, use_container_width=True)
+
+# Role Distribution
+role_counts = filtered_df["role"].value_counts().reset_index()
+role_counts.columns = ["role", "count"]
+
+fig2 = px.pie(
+    role_counts,
+    names="role",
+    values="count",
+    title="Role Distribution"
+)
+
+fig2.update_layout(height=350)
+
+col2.plotly_chart(fig2, use_container_width=True)
+
 st.markdown("---")
-st.header("🏆 Rank Distribution")
 
-rank_counts = filtered_df["rank"].value_counts()
+# 🏆 RANK
+filtered_df["rank"] = pd.cut(
+    filtered_df["kda"],
+    bins=[0,1,1.5,2,10],
+    labels=["Gold","Diamond","Immortal","Radiant"]
+)
 
-fig, ax = plt.subplots(figsize=(8,5))
-sns.barplot(x=rank_counts.index, y=rank_counts.values, ax=ax)
-plt.xticks(rotation=45)
-plt.tight_layout()
-st.pyplot(fig)
+rank_counts = filtered_df["rank"].value_counts().reset_index()
+rank_counts.columns = ["rank","count"]
 
-# ---------------------------
-# 🧩 ROLE DISTRIBUTION
-# ---------------------------
+fig3 = px.bar(rank_counts, x="rank", y="count", color="rank", title="Rank")
+
+fig3.update_layout(height=350)
+
+st.plotly_chart(fig3, use_container_width=True)
+
 st.markdown("---")
-st.header("🧩 Role Distribution")
 
-role_counts = filtered_df["role"].value_counts()
-
-fig, ax = plt.subplots(figsize=(8,5))
-sns.barplot(x=role_counts.values, y=role_counts.index, ax=ax)
-plt.tight_layout()
-st.pyplot(fig)
-
-# ---------------------------
-# 🎯 AGENT PERFORMANCE
-# ---------------------------
-st.markdown("---")
-st.header("🎯 Agent Performance")
-
-agent_perf = filtered_df.groupby("agent")[["kills","kda"]].mean().sort_values(by="kills", ascending=False)
-
-fig, ax = plt.subplots(figsize=(10,6))
-agent_perf["kills"].plot(kind="bar", ax=ax)
-plt.xticks(rotation=45)
-plt.tight_layout()
-st.pyplot(fig)
-
-# ---------------------------
-# 🎮 PLAYER PERFORMANCE
-# ---------------------------
-st.markdown("---")
-st.header("🎮 Player Performance")
-
-fig, ax = plt.subplots(figsize=(10,5))
-sns.histplot(filtered_df["kills"], bins=20, ax=ax)
-plt.tight_layout()
-st.pyplot(fig)
-
-# ---------------------------
 # 🆚 PLAYER COMPARISON
-# ---------------------------
-st.markdown("---")
-st.header("🆚 Player Comparison")
+st.markdown("## 🆚 Player Comparison")
 
 players = filtered_df["user_id"].unique()
 
-p1 = st.selectbox("Player 1", players)
-p2 = st.selectbox("Player 2", players, index=1)
+p1, p2 = st.columns(2)
 
-player1 = filtered_df[filtered_df["user_id"] == p1]
-player2 = filtered_df[filtered_df["user_id"] == p2]
+player1 = p1.selectbox("Player 1", players)
+player2 = p2.selectbox("Player 2", players)
 
-col1, col2 = st.columns(2)
+d1 = filtered_df[filtered_df["user_id"] == player1]
+d2 = filtered_df[filtered_df["user_id"] == player2]
 
-col1.metric("Player 1 Avg Kills", int(player1["kills"].mean()))
-col2.metric("Player 2 Avg Kills", int(player2["kills"].mean()))
-
-# ---------------------------
-# 📈 ACTIVITY ANALYSIS
-# ---------------------------
-st.markdown("---")
-st.header("📈 Activity Analysis")
-
-filtered_df["date"] = pd.to_datetime(filtered_df["date"])
-daily_users = filtered_df.groupby(filtered_df["date"].dt.date)["user_id"].nunique()
-
-fig, ax = plt.subplots(figsize=(10,5))
-sns.lineplot(x=daily_users.index, y=daily_users.values, ax=ax)
-plt.xticks(rotation=45)
-plt.tight_layout()
-st.pyplot(fig)
+c1, c2 = st.columns(2)
+c1.metric("Player 1 Kills", int(d1["kills"].mean()))
+c2.metric("Player 2 Kills", int(d2["kills"].mean()))
