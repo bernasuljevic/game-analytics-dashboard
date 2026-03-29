@@ -130,7 +130,7 @@ agent_perf = filtered_df.groupby("agent")["kills"].mean().reset_index()
 fig1 = px.bar(agent_perf, x="agent", y="kills", color="agent", title="Kills per Agent")
 fig1.update_layout(template="plotly_dark", title_x=0.5)
 
-st.plotly_chart(fig1, use_container_width=True)
+st.plotly_chart(fig1, width="stretch")
 
 st.divider()
 
@@ -147,7 +147,7 @@ rank_counts.columns = ["rank","count"]
 fig3 = px.bar(rank_counts, x="rank", y="count", color="rank", title="Rank Distribution")
 fig3.update_layout(template="plotly_dark", title_x=0.5)
 
-st.plotly_chart(fig3, use_container_width=True)
+st.plotly_chart(fig3, width="stretch")
 
 st.divider()
 
