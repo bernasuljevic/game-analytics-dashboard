@@ -4,11 +4,32 @@ import sqlite3
 import os
 import plotly.express as px
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Game Analytics", page_icon="🎮", layout="wide")
 
-# 🎯 TITLE
-st.title("🎯 Valorant Analytics Dashboard")
-st.caption("Interactive player & agent analytics")
+# 🎨 BACKGROUND STYLE
+st.markdown("""
+<style>
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(120deg, #0f2027, #203a43, #2c5364);
+    color: white;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# 🎯 TITLE (GRADIENT)
+st.markdown("""
+<h1 style='text-align:center;
+background: linear-gradient(to right, #ff416c, #ff4b2b);
+-webkit-background-clip: text;
+color: transparent;'>
+🎮 Valorant Analytics Dashboard
+</h1>
+""", unsafe_allow_html=True)
+
+st.markdown(
+"<p style='text-align:center; color:gray;'>Interactive player & agent insights</p>",
+unsafe_allow_html=True
+)
 
 # 🔗 DATA
 @st.cache_data
@@ -28,7 +49,7 @@ df = load_data()
 
 # 🎮 SIDEBAR
 with st.sidebar:
-    st.title("🎮 Filters")
+    st.markdown("<h2 style='text-align:center;'>🎮 Control Panel</h2>", unsafe_allow_html=True)
 
     selected_agent = st.multiselect(
         "Agent",
@@ -77,17 +98,32 @@ filtered_df["role"] = filtered_df["agent"].map(agent_roles)
 # 📊 OVERVIEW
 st.markdown("## 📊 Overview")
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Players", filtered_df["user_id"].nunique())
-c2.metric("Avg Kills", int(filtered_df["kills"].mean()))
-c3.metric("Avg KDA", round(filtered_df["kda"].mean(), 2))
+def card(title, value, icon):
+    st.markdown(f"""
+    <div style='background: rgba(255,255,255,0.05);
+    padding:20px;border-radius:15px;text-align:center;
+    backdrop-filter: blur(10px);'>
+    <h4>{icon} {title}</h4>
+    <h2>{value}</h2>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.markdown("---")
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    card("Players", filtered_df["user_id"].nunique(), "👥")
+
+with c2:
+    card("Avg Kills", int(filtered_df["kills"].mean()), "🔫")
+
+with c3:
+    card("Avg KDA", round(filtered_df["kda"].mean(), 2), "⚔️")
+
+st.divider()
 
 # 🎯 AGENT PERFORMANCE + ROLE
 col1, col2 = st.columns(2)
 
-# Agent Performance
 agent_perf = filtered_df.groupby("agent")["kills"].mean().reset_index()
 
 fig1 = px.bar(
@@ -99,7 +135,7 @@ fig1 = px.bar(
     title="Kills per Agent"
 )
 
-fig1.update_layout(height=350)
+fig1.update_layout(template="plotly_dark", height=350, title_x=0.5)
 fig1.update_traces(hovertemplate="Agent: %{x}<br>Kills: %{y}")
 
 col1.plotly_chart(fig1, use_container_width=True)
@@ -115,11 +151,12 @@ fig2 = px.pie(
     title="Role Distribution"
 )
 
-fig2.update_layout(height=350)
+fig2.update_traces(textinfo='percent+label')
+fig2.update_layout(template="plotly_dark", height=350)
 
 col2.plotly_chart(fig2, use_container_width=True)
 
-st.markdown("---")
+st.divider()
 
 # 🏆 RANK
 filtered_df["rank"] = pd.cut(
@@ -133,11 +170,11 @@ rank_counts.columns = ["rank","count"]
 
 fig3 = px.bar(rank_counts, x="rank", y="count", color="rank", title="Rank")
 
-fig3.update_layout(height=350)
+fig3.update_layout(template="plotly_dark", height=350, title_x=0.5)
 
 st.plotly_chart(fig3, use_container_width=True)
 
-st.markdown("---")
+st.divider()
 
 # 🆚 PLAYER COMPARISON
 st.markdown("## 🆚 Player Comparison")
@@ -155,3 +192,7 @@ d2 = filtered_df[filtered_df["user_id"] == player2]
 c1, c2 = st.columns(2)
 c1.metric("Player 1 Kills", int(d1["kills"].mean()))
 c2.metric("Player 2 Kills", int(d2["kills"].mean()))
+
+c3, c4 = st.columns(2)
+c3.metric("Player 1 KDA", round(d1["kda"].mean(),2))
+c4.metric("Player 2 KDA", round(d2["kda"].mean(),2))
