@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-import os
 import plotly.express as px
 
 st.set_page_config(page_title="Game Analytics", page_icon="🎮", layout="wide")
 
-# 🎨 BACKGROUND STYLE
+# 🎨 BACKGROUND
 st.markdown("""
 <style>
 [data-testid="stAppViewContainer"] {
@@ -16,7 +15,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🎯 TITLE (GRADIENT)
+# 🎯 TITLE
 st.markdown("""
 <h1 style='text-align:center;
 background: linear-gradient(to right, #ff416c, #ff4b2b);
@@ -26,30 +25,46 @@ color: transparent;'>
 </h1>
 """, unsafe_allow_html=True)
 
-st.markdown(
-"<p style='text-align:center; color:gray;'>Interactive player & agent insights</p>",
-unsafe_allow_html=True
-)
+st.markdown("<p style='text-align:center; color:gray;'>Real game data analytics</p>", unsafe_allow_html=True)
 
 # 🔗 DATA
 @st.cache_data
 def load_data():
-    if not os.path.exists("game_data.db"):
-        df = pd.read_csv("game_data.csv")
-        conn = sqlite3.connect("game_data.db")
-        df.to_sql("game_sessions", conn, if_exists="replace", index=False)
-        conn.close()
-
-    conn = sqlite3.connect("game_data.db")
-    df = pd.read_sql("SELECT * FROM game_sessions", conn)
+    conn = sqlite3.connect("valorant.sqlite")
+    df = pd.read_sql("SELECT * FROM Game_Scoreboard LIMIT 5000", conn)
     conn.close()
     return df
 
 df = load_data()
 
+# 🔥 KOLON BULMA (garantili)
+kill_cols = [col for col in df.columns if "kill" in col.lower()]
+death_cols = [col for col in df.columns if "death" in col.lower()]
+agent_cols = [col for col in df.columns if "agent" in col.lower() or "character" in col.lower()]
+player_cols = [col for col in df.columns if "player" in col.lower() or "name" in col.lower()]
+level_cols = [col for col in df.columns if "level" in col.lower()]
+
+# kolonları ata
+df["kills"] = df[kill_cols[0]] if kill_cols else 0
+df["deaths"] = df[death_cols[0]] if death_cols else 1
+df["agent"] = df[agent_cols[0]] if agent_cols else "Unknown"
+df["user_id"] = df[player_cols[0]] if player_cols else "Player"
+
+if level_cols:
+    df["level"] = df[level_cols[0]]
+else:
+    df["level"] = 1
+
+# 🧼 temizleme
+df["kills"] = pd.to_numeric(df["kills"], errors="coerce")
+df["deaths"] = pd.to_numeric(df["deaths"], errors="coerce")
+df["level"] = pd.to_numeric(df["level"], errors="coerce")
+
+df = df.dropna(subset=["kills", "deaths", "agent"])
+
 # 🎮 SIDEBAR
 with st.sidebar:
-    st.markdown("<h2 style='text-align:center;'>🎮 Control Panel</h2>", unsafe_allow_html=True)
+    st.markdown("## 🎮 Control Panel")
 
     selected_agent = st.multiselect(
         "Agent",
@@ -57,12 +72,19 @@ with st.sidebar:
         default=df["agent"].unique()
     )
 
-    level_range = st.slider(
-        "Level",
-        int(df["level"].min()),
-        int(df["level"].max()),
-        (1, 50)
-    )
+    min_level = int(df["level"].min())
+    max_level = int(df["level"].max())
+
+    if min_level == max_level:
+        level_range = (min_level, max_level)
+        st.info("Level filter disabled")
+    else:
+        level_range = st.slider(
+            "Level",
+            min_level,
+            max_level,
+            (min_level, max_level)
+        )
 
 # 🎯 FILTER
 filtered_df = df[
@@ -77,32 +99,13 @@ if filtered_df.empty:
 # 🔥 FEATURES
 filtered_df["kda"] = filtered_df["kills"] / (filtered_df["deaths"] + 1)
 
-agent_roles = {
-    "Jett": "Duelist",
-    "Reyna": "Duelist",
-    "Phoenix": "Duelist",
-    "Sova": "Initiator",
-    "Sage": "Sentinel"
-}
-
-agent_colors = {
-    "Jett": "#00FFFF",
-    "Reyna": "#8000FF",
-    "Phoenix": "#FF5733",
-    "Sova": "#00FF99",
-    "Sage": "#A8E6CF"
-}
-
-filtered_df["role"] = filtered_df["agent"].map(agent_roles)
-
 # 📊 OVERVIEW
 st.markdown("## 📊 Overview")
 
 def card(title, value, icon):
     st.markdown(f"""
     <div style='background: rgba(255,255,255,0.05);
-    padding:20px;border-radius:15px;text-align:center;
-    backdrop-filter: blur(10px);'>
+    padding:20px;border-radius:15px;text-align:center;'>
     <h4>{icon} {title}</h4>
     <h2>{value}</h2>
     </div>
@@ -121,40 +124,13 @@ with c3:
 
 st.divider()
 
-# 🎯 AGENT PERFORMANCE + ROLE
-col1, col2 = st.columns(2)
-
+# 🎯 AGENT PERFORMANCE
 agent_perf = filtered_df.groupby("agent")["kills"].mean().reset_index()
 
-fig1 = px.bar(
-    agent_perf,
-    x="agent",
-    y="kills",
-    color="agent",
-    color_discrete_map=agent_colors,
-    title="Kills per Agent"
-)
+fig1 = px.bar(agent_perf, x="agent", y="kills", color="agent", title="Kills per Agent")
+fig1.update_layout(template="plotly_dark", title_x=0.5)
 
-fig1.update_layout(template="plotly_dark", height=350, title_x=0.5)
-fig1.update_traces(hovertemplate="Agent: %{x}<br>Kills: %{y}")
-
-col1.plotly_chart(fig1, use_container_width=True)
-
-# Role Distribution
-role_counts = filtered_df["role"].value_counts().reset_index()
-role_counts.columns = ["role", "count"]
-
-fig2 = px.pie(
-    role_counts,
-    names="role",
-    values="count",
-    title="Role Distribution"
-)
-
-fig2.update_traces(textinfo='percent+label')
-fig2.update_layout(template="plotly_dark", height=350)
-
-col2.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig1, use_container_width=True)
 
 st.divider()
 
@@ -168,9 +144,8 @@ filtered_df["rank"] = pd.cut(
 rank_counts = filtered_df["rank"].value_counts().reset_index()
 rank_counts.columns = ["rank","count"]
 
-fig3 = px.bar(rank_counts, x="rank", y="count", color="rank", title="Rank")
-
-fig3.update_layout(template="plotly_dark", height=350, title_x=0.5)
+fig3 = px.bar(rank_counts, x="rank", y="count", color="rank", title="Rank Distribution")
+fig3.update_layout(template="plotly_dark", title_x=0.5)
 
 st.plotly_chart(fig3, use_container_width=True)
 
