@@ -5,7 +5,7 @@ import plotly.express as px
 
 st.set_page_config(page_title="Game Analytics", page_icon="🎮", layout="wide")
 
-# 🎨 BACKGROUND
+# 🎨 STYLE
 st.markdown("""
 <style>
 [data-testid="stAppViewContainer"] {
@@ -16,158 +16,170 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🎯 TITLE
-st.markdown("""
-<h1 style='text-align:center;
-background: linear-gradient(to right, #ff416c, #ff4b2b);
--webkit-background-clip: text;
-color: transparent;'>
-🎮 Valorant Analytics Dashboard
-</h1>
-""", unsafe_allow_html=True)
-
-st.markdown("<p style='text-align:center; color:gray;'>Real game data analytics</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center;'>🎮 Game Analytics Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("<h4 style='text-align:center; color:gray;'>Multi-Game Comparison System</h4>", unsafe_allow_html=True)
 
 # 🔗 DATA
 @st.cache_data
-def load_data():
+def load_valorant():
     conn = sqlite3.connect("valorant.sqlite")
     df = pd.read_sql("SELECT * FROM Game_Scoreboard LIMIT 5000", conn)
     conn.close()
+    df["game"] = "Valorant"
     return df
 
-df = load_data()
+@st.cache_data
+def load_lol():
+    try:
+        df = pd.read_csv("lol_data.csv")
+        df["game"] = "LoL"
+        return df
+    except:
+        return pd.DataFrame()
 
-# 🔥 KOLON BULMA (garantili)
-kill_cols = [col for col in df.columns if "kill" in col.lower()]
-death_cols = [col for col in df.columns if "death" in col.lower()]
-agent_cols = [col for col in df.columns if "agent" in col.lower() or "character" in col.lower()]
-player_cols = [col for col in df.columns if "player" in col.lower() or "name" in col.lower()]
-level_cols = [col for col in df.columns if "level" in col.lower()]
+val_df = load_valorant()
+lol_df = load_lol()
 
-# kolonları ata
-df["kills"] = df[kill_cols[0]] if kill_cols else 0
-df["deaths"] = df[death_cols[0]] if death_cols else 1
-df["agent"] = df[agent_cols[0]] if agent_cols else "Unknown"
-df["user_id"] = df[player_cols[0]] if player_cols else "Player"
+# 🧠 CLEAN FUNCTION
+def clean(df):
+    df.columns = df.columns.str.lower()
+    kill = [c for c in df.columns if "kill" in c]
+    death = [c for c in df.columns if "death" in c]
+    agent = [c for c in df.columns if "agent" in c or "champion" in c]
+    player = [c for c in df.columns if "player" in c or "name" in c]
 
-if level_cols:
-    df["level"] = df[level_cols[0]]
-else:
-    df["level"] = 1
+    df["kills"] = df[kill[0]] if kill else 0
+    df["deaths"] = df[death[0]] if death else 1
+    df["agent"] = df[agent[0]] if agent else "Unknown"
+    df["user_id"] = df[player[0]] if player else "Player"
 
-# 🧼 temizleme
-df["kills"] = pd.to_numeric(df["kills"], errors="coerce")
-df["deaths"] = pd.to_numeric(df["deaths"], errors="coerce")
-df["level"] = pd.to_numeric(df["level"], errors="coerce")
+    df["kills"] = pd.to_numeric(df["kills"], errors="coerce")
+    df["deaths"] = pd.to_numeric(df["deaths"], errors="coerce")
 
-df = df.dropna(subset=["kills", "deaths", "agent"])
+    df["kda"] = df["kills"] / (df["deaths"] + 1)
 
-# 🎮 SIDEBAR
-with st.sidebar:
-    st.markdown("## 🎮 Control Panel")
+    return df.dropna(subset=["kills", "deaths"])
 
-    selected_agent = st.multiselect(
-        "Agent",
-        df["agent"].unique(),
-        default=df["agent"].unique()
-    )
+val_df = clean(val_df)
+lol_df = clean(lol_df)
 
-    min_level = int(df["level"].min())
-    max_level = int(df["level"].max())
+df = pd.concat([val_df, lol_df])
 
-    if min_level == max_level:
-        level_range = (min_level, max_level)
-        st.info("Level filter disabled")
-    else:
-        level_range = st.slider(
-            "Level",
-            min_level,
-            max_level,
-            (min_level, max_level)
-        )
+# 🎮 FILTER
+selected_games = st.multiselect(
+    "🎮 Select Games",
+    df["game"].unique(),
+    default=df["game"].unique()
+)
 
-# 🎯 FILTER
-filtered_df = df[
-    (df["agent"].isin(selected_agent)) &
-    (df["level"].between(level_range[0], level_range[1]))
-].copy()
+df = df[df["game"].isin(selected_games)]
 
-if filtered_df.empty:
-    st.warning("No data")
-    st.stop()
+# 📊 HEADER
+st.markdown("## 🔥 Game Comparison Overview")
 
-# 🔥 FEATURES
-filtered_df["kda"] = filtered_df["kills"] / (filtered_df["deaths"] + 1)
+col1, col2, col3 = st.columns(3)
 
-# 📊 OVERVIEW
-st.markdown("## 📊 Overview")
+col1.metric("Valorant Players", val_df["user_id"].nunique())
+col2.metric("LoL Players", lol_df["user_id"].nunique())
+col3.metric("Total Players", df["user_id"].nunique())
 
-def card(title, value, icon):
-    st.markdown(f"""
-    <div style='background: rgba(255,255,255,0.05);
-    padding:20px;border-radius:15px;text-align:center;'>
-    <h4>{icon} {title}</h4>
-    <h2>{value}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+st.divider()
 
+# 🎨 COLORS
+colors = {
+    "LoL": "#3498db",
+    "Valorant": "#e74c3c"
+}
+
+# 📊 KDA
+kda_data = df.groupby("game")["kda"].mean().reset_index()
+
+fig1 = px.bar(
+    kda_data,
+    x="game",
+    y="kda",
+    color="game",
+    text_auto=True,
+    color_discrete_map=colors,
+    title="Average KDA Comparison"
+)
+
+fig1.update_traces(
+    textposition="outside",
+    hovertemplate="<b>%{x}</b><br>KDA: %{y:.2f}<extra></extra>"
+)
+
+fig1.update_layout(template="plotly_dark", title_x=0.5)
+
+# 📊 KILLS
+kill_data = df.groupby("game")["kills"].mean().reset_index()
+
+fig2 = px.bar(
+    kill_data,
+    x="game",
+    y="kills",
+    color="game",
+    text_auto=True,
+    color_discrete_map=colors,
+    title="Average Kills Comparison"
+)
+
+fig2.update_traces(
+    textposition="outside",
+    hovertemplate="<b>%{x}</b><br>Kills: %{y:.1f}<extra></extra>"
+)
+
+fig2.update_layout(template="plotly_dark", title_x=0.5)
+
+# 📊 PIE
+count_data = df["game"].value_counts().reset_index()
+count_data.columns = ["game","count"]
+
+fig3 = px.pie(
+    count_data,
+    names="game",
+    values="count",
+    color="game",
+    color_discrete_map=colors,
+    title="Player Distribution"
+)
+
+fig3.update_traces(
+    textinfo="percent+label",
+    hovertemplate="<b>%{label}</b><br>Players: %{value}<extra></extra>"
+)
+
+fig3.update_layout(template="plotly_dark")
+
+# 🎯 GRID
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    card("Players", filtered_df["user_id"].nunique(), "👥")
+    st.plotly_chart(fig1, use_container_width=True)
 
 with c2:
-    card("Avg Kills", int(filtered_df["kills"].mean()), "🔫")
+    st.plotly_chart(fig2, use_container_width=True)
 
 with c3:
-    card("Avg KDA", round(filtered_df["kda"].mean(), 2), "⚔️")
+    st.plotly_chart(fig3, use_container_width=True)
 
 st.divider()
 
-# 🎯 AGENT PERFORMANCE
-agent_perf = filtered_df.groupby("agent")["kills"].mean().reset_index()
+# 🎮 DETAIL
+game = st.selectbox("🎯 Select Detailed Game", selected_games)
 
-fig1 = px.bar(agent_perf, x="agent", y="kills", color="agent", title="Kills per Agent")
-fig1.update_layout(template="plotly_dark", title_x=0.5)
+filtered_df = df[df["game"] == game]
 
-st.plotly_chart(fig1, width="stretch")
+st.markdown(f"## 🔍 {game} Detailed Analysis")
 
-st.divider()
-
-# 🏆 RANK
-filtered_df["rank"] = pd.cut(
-    filtered_df["kda"],
-    bins=[0,1,1.5,2,10],
-    labels=["Gold","Diamond","Immortal","Radiant"]
+fig4 = px.bar(
+    filtered_df.groupby("agent")["kills"].mean().reset_index(),
+    x="agent",
+    y="kills",
+    color="agent",
+    title=f"{game} Agent Performance"
 )
 
-rank_counts = filtered_df["rank"].value_counts().reset_index()
-rank_counts.columns = ["rank","count"]
+fig4.update_layout(template="plotly_dark", title_x=0.5)
 
-fig3 = px.bar(rank_counts, x="rank", y="count", color="rank", title="Rank Distribution")
-fig3.update_layout(template="plotly_dark", title_x=0.5)
-
-st.plotly_chart(fig3, width="stretch")
-
-st.divider()
-
-# 🆚 PLAYER COMPARISON
-st.markdown("## 🆚 Player Comparison")
-
-players = filtered_df["user_id"].unique()
-
-p1, p2 = st.columns(2)
-
-player1 = p1.selectbox("Player 1", players)
-player2 = p2.selectbox("Player 2", players)
-
-d1 = filtered_df[filtered_df["user_id"] == player1]
-d2 = filtered_df[filtered_df["user_id"] == player2]
-
-c1, c2 = st.columns(2)
-c1.metric("Player 1 Kills", int(d1["kills"].mean()))
-c2.metric("Player 2 Kills", int(d2["kills"].mean()))
-
-c3, c4 = st.columns(2)
-c3.metric("Player 1 KDA", round(d1["kda"].mean(),2))
-c4.metric("Player 2 KDA", round(d2["kda"].mean(),2))
+st.plotly_chart(fig4, use_container_width=True)
